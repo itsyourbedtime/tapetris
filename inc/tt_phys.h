@@ -17,10 +17,30 @@ typedef void (*tt_substep_fn)(void* ctx, float h);
 
 /* ---- lifetime ----------------------------------------------------------------------------- */
 
+/*
+ * The pools are carved from SEVERAL blocks, not one.
+ *
+ * A single ~70 KB allocation is the wrong shape for this device: OS_RAM is one 512 KB heap region
+ * with well under 100 KB free by the time a tapp loads, and the ELF loader has just fragmented it.
+ * Five blocks of at most ~31 KB fit where one of 70 KB does not. No pool ever straddles a block —
+ * tt_take() moves to the next block rather than splitting an array.
+ *
+ * tt_phys_block_plan() fills `sizes` with the blocks to allocate and returns how many (<=
+ * TT_MAX_BLOCKS). Allocate each, then hand them to tt_phys_init IN THE SAME ORDER.
+ */
+#define TT_MAX_BLOCKS 5
+
+uint8_t tt_phys_block_plan(uint16_t body_cap, uint16_t mf_cap, uint32_t* sizes);
+
+/* Total across the plan — for reporting, not for allocating. */
 uint32_t tt_phys_bytes(uint16_t body_cap, uint16_t mf_cap);
 
-/* Carves `mem` into the pools. Returns NULL if the block is too small. */
-tt_world_t* tt_phys_init(void* mem, uint32_t bytes, uint16_t body_cap, uint16_t mf_cap);
+tt_world_t* tt_phys_init(
+    void* const* blocks,
+    const uint32_t* sizes,
+    uint8_t nblocks,
+    uint16_t body_cap,
+    uint16_t mf_cap);
 void tt_phys_clear(tt_world_t* w);
 
 /* ---- bodies ------------------------------------------------------------------------------- */

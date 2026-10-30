@@ -14,38 +14,82 @@
 #define TT_ALIGN8(n) (((uint32_t)(n) + 7u) & ~7u)
 
 typedef struct {
-    uint8_t* base;
-    uint32_t used, cap;
+    uint8_t* base[TT_MAX_BLOCKS];
+    uint32_t size[TT_MAX_BLOCKS];
+    uint32_t used[TT_MAX_BLOCKS];
+    uint8_t n;
 } tt_arena_t;
 
-static void* tt_take(tt_arena_t* a, uint32_t n) {
+/* Carve out of the block the PLAN assigned this pool — named, not searched.
+ *
+ * This used to be first-fit over every block, which made the grouping in tt_phys_block_plan() an
+ * unwritten contract: the carve had to request the pools in exactly the plan's block order or
+ * first-fit would put one somewhere else and cascade. It drifted, and the result was
+ * "out of memory - cannot start" with every byte successfully allocated — `bucket` (block 2's)
+ * was asked for before block 0's own members, so it landed in block 0, which pushed `pair` into a
+ * snapshot block, which left snap[1] with nowhere to go.
+ *
+ * Naming the block ties the plan and the carve together: a future edit to either one fails at its
+ * own pool's NULL check instead of starving an unrelated one nine takes later. */
+static void* tt_take(tt_arena_t* a, uint8_t blk, uint32_t n) {
     n = TT_ALIGN8(n);
-    if(a->used + n > a->cap) return NULL;
-    void* p = a->base + a->used;
-    a->used += n;
+    if(blk >= a->n || a->used[blk] + n > a->size[blk]) return NULL;
+    void* p = a->base[blk] + a->used[blk];
+    a->used[blk] += n;
     return p;
 }
 
-uint32_t tt_phys_bytes(uint16_t body_cap, uint16_t mf_cap) {
-    uint32_t n = 0;
-    n += TT_ALIGN8(sizeof(tt_world_t));
-    n += TT_ALIGN8((uint32_t)body_cap * sizeof(tt_body_t));
-    n += TT_ALIGN8((uint32_t)mf_cap * sizeof(tt_manifold_t));
-    n += TT_ALIGN8((uint32_t)mf_cap * sizeof(tt_pc_t));
-    n += TT_ALIGN8(TT_HASH_BUCKETS * sizeof(int16_t));
-    n += TT_ALIGN8((uint32_t)body_cap * sizeof(tt_proxy_t));
-    n += TT_ALIGN8(TT_MAX_PAIRS * sizeof(tt_pair_t));
-    n += TT_ALIGN8((uint32_t)body_cap * sizeof(uint16_t));
-    n += TT_ALIGN8((uint32_t)body_cap * sizeof(float));
-    n += 2u * TT_ALIGN8(sizeof(tt_snap_t));
-    return n + 64u;
+/* Bytes of snapshot polygons per buffer, at this body cap. */
+static uint32_t tt_snap_bytes(uint16_t body_cap) {
+    return TT_ALIGN8((uint32_t)body_cap * TT_BODY_MAXPOLY * sizeof(tt_snap_poly_t));
 }
 
-tt_world_t* tt_phys_init(void* mem, uint32_t bytes, uint16_t body_cap, uint16_t mf_cap) {
-    if(!mem || bytes < tt_phys_bytes(body_cap, mf_cap)) return NULL;
+uint8_t tt_phys_block_plan(uint16_t body_cap, uint16_t mf_cap, uint32_t* sizes) {
+    /* 0: world + the small per-body arrays. Carved first, so it must come first. */
+    sizes[0] = TT_ALIGN8(sizeof(tt_world_t)) + TT_ALIGN8((uint32_t)body_cap * sizeof(tt_proxy_t)) +
+               TT_ALIGN8(TT_MAX_PAIRS * sizeof(tt_pair_t)) +
+               TT_ALIGN8((uint32_t)body_cap * sizeof(uint16_t)) +
+               TT_ALIGN8((uint32_t)body_cap * sizeof(float)) + 64u;
+    /* 1: the body pool — the single biggest array, hence its own block. */
+    sizes[1] = TT_ALIGN8((uint32_t)body_cap * sizeof(tt_body_t)) + 32u;
+    /* 2: contacts — manifolds, the warm-start carrier and its hash. */
+    sizes[2] = TT_ALIGN8((uint32_t)mf_cap * sizeof(tt_manifold_t)) +
+               TT_ALIGN8((uint32_t)mf_cap * sizeof(tt_pc_t)) +
+               TT_ALIGN8(TT_HASH_BUCKETS * sizeof(int16_t)) + 32u;
+    /* 3, 4: the two render snapshots, separately so neither forces a big contiguous ask. */
+    sizes[3] = tt_snap_bytes(body_cap) + 32u;
+    sizes[4] = tt_snap_bytes(body_cap) + 32u;
+    return 5u;
+}
 
-    tt_arena_t a = {(uint8_t*)mem, 0, bytes};
-    tt_world_t* w = (tt_world_t*)tt_take(&a, sizeof(tt_world_t));
+uint32_t tt_phys_bytes(uint16_t body_cap, uint16_t mf_cap) {
+    uint32_t sizes[TT_MAX_BLOCKS], total = 0;
+    const uint8_t n = tt_phys_block_plan(body_cap, mf_cap, sizes);
+    for(uint8_t i = 0; i < n; i++) total += sizes[i];
+    return total;
+}
+
+tt_world_t* tt_phys_init(
+    void* const* blocks,
+    const uint32_t* sizes,
+    uint8_t nblocks,
+    uint16_t body_cap,
+    uint16_t mf_cap) {
+    if(!blocks || !sizes || nblocks == 0 || nblocks > TT_MAX_BLOCKS) return NULL;
+
+    tt_arena_t a;
+    memset(&a, 0, sizeof(a));
+    a.n = nblocks;
+    for(uint8_t i = 0; i < nblocks; i++) {
+        if(!blocks[i]) return NULL;
+        a.base[i] = (uint8_t*)blocks[i];
+        a.size[i] = sizes[i];
+    }
+
+    /* Block indices mirror tt_phys_block_plan() exactly — 0: world + the small per-body arrays,
+     * 1: the body pool, 2: contacts, 3 and 4: the two render snapshots. Keep the two functions
+     * in step; they are one decision written twice. */
+    tt_world_t* w = (tt_world_t*)tt_take(&a, 0, sizeof(tt_world_t));
     if(!w) return NULL;
     memset(w, 0, sizeof(*w));
 
@@ -53,19 +97,26 @@ tt_world_t* tt_phys_init(void* mem, uint32_t bytes, uint16_t body_cap, uint16_t 
     w->mf_cap = mf_cap;
     w->pc_cap = mf_cap;
 
-    w->body = (tt_body_t*)tt_take(&a, (uint32_t)body_cap * sizeof(tt_body_t));
-    w->mf = (tt_manifold_t*)tt_take(&a, (uint32_t)mf_cap * sizeof(tt_manifold_t));
-    w->pc = (tt_pc_t*)tt_take(&a, (uint32_t)mf_cap * sizeof(tt_pc_t));
-    w->bucket = (int16_t*)tt_take(&a, TT_HASH_BUCKETS * sizeof(int16_t));
-    w->proxy = (tt_proxy_t*)tt_take(&a, (uint32_t)body_cap * sizeof(tt_proxy_t));
-    w->pair = (tt_pair_t*)tt_take(&a, TT_MAX_PAIRS * sizeof(tt_pair_t));
-    w->uf = (uint16_t*)tt_take(&a, (uint32_t)body_cap * sizeof(uint16_t));
-    w->island_t = (float*)tt_take(&a, (uint32_t)body_cap * sizeof(float));
-    w->snap[0] = (tt_snap_t*)tt_take(&a, sizeof(tt_snap_t));
-    w->snap[1] = (tt_snap_t*)tt_take(&a, sizeof(tt_snap_t));
+    w->proxy = (tt_proxy_t*)tt_take(&a, 0, (uint32_t)body_cap * sizeof(tt_proxy_t));
+    w->pair = (tt_pair_t*)tt_take(&a, 0, TT_MAX_PAIRS * sizeof(tt_pair_t));
+    w->uf = (uint16_t*)tt_take(&a, 0, (uint32_t)body_cap * sizeof(uint16_t));
+    w->island_t = (float*)tt_take(&a, 0, (uint32_t)body_cap * sizeof(float));
+
+    w->body = (tt_body_t*)tt_take(&a, 1, (uint32_t)body_cap * sizeof(tt_body_t));
+
+    w->mf = (tt_manifold_t*)tt_take(&a, 2, (uint32_t)mf_cap * sizeof(tt_manifold_t));
+    w->pc = (tt_pc_t*)tt_take(&a, 2, (uint32_t)mf_cap * sizeof(tt_pc_t));
+    w->bucket = (int16_t*)tt_take(&a, 2, TT_HASH_BUCKETS * sizeof(int16_t));
+
+    const uint16_t snap_cap = (uint16_t)(body_cap * TT_BODY_MAXPOLY);
+    for(int i = 0; i < 2; i++) {
+        w->snap[i].cap = snap_cap;
+        w->snap[i].count = 0;
+        w->snap[i].p = (tt_snap_poly_t*)tt_take(&a, (uint8_t)(3 + i), tt_snap_bytes(body_cap));
+    }
 
     if(!w->body || !w->mf || !w->pc || !w->bucket || !w->proxy || !w->pair || !w->uf ||
-       !w->island_t || !w->snap[0] || !w->snap[1])
+       !w->island_t || !w->snap[0].p || !w->snap[1].p)
         return NULL;
 
     tt_phys_clear(w);
@@ -81,8 +132,8 @@ void tt_phys_clear(tt_world_t* w) {
     w->proxy_count = 0;
     w->topology_changed = true;
     w->degrade = 0;
-    w->snap[0]->count = 0;
-    w->snap[1]->count = 0;
+    w->snap[0].count = 0;
+    w->snap[1].count = 0;
     w->published = 0;
 }
 
@@ -91,7 +142,7 @@ const tt_snap_t* tt_phys_published(const tt_world_t* w) {
      * pair on Cortex-M7, which is the whole handoff - redraw() runs on the GUI task, concurrently
      * with and at a higher priority than the tick that produces this. */
     const uint32_t idx = w->published;
-    return w->snap[idx & 1u];
+    return &w->snap[idx & 1u];
 }
 
 /* ============================================================================= geometry ==== */
@@ -513,9 +564,9 @@ static void tt_sleep_update(tt_world_t* w, float dt) {
 
 void tt_phys_snapshot(tt_world_t* w) {
     const uint32_t back = (w->published + 1u) & 1u;
-    tt_snap_t* s = w->snap[back];
+    tt_snap_t* s = &w->snap[back];
     uint16_t n = 0;
-    const uint16_t cap = (uint16_t)(TT_MAX_BODIES * TT_BODY_MAXPOLY);
+    const uint16_t cap = s->cap;
 
     for(uint16_t i = 0; i < w->nbody && n < cap; i++) {
         const tt_body_t* b = &w->body[i];

@@ -265,16 +265,36 @@ static void tt_score_clears(tt_model_t* m) {
 
 /* ============================================================================== lifecycle ==== */
 
-bool tt_game_init(tt_model_t* m, void* pool, uint32_t bytes, uint16_t body_cap, uint16_t mf_cap) {
-    m->pool = pool;
+bool tt_game_init(tt_model_t* m,
+                  void* const* blocks,
+                  const uint32_t* sizes,
+                  uint8_t nblocks,
+                  uint16_t body_cap,
+                  uint16_t mf_cap) {
     m->body_cap = body_cap;
     m->mf_cap = mf_cap;
-    m->world = tt_phys_init(pool, bytes, body_cap, mf_cap);
-    if(!m->world) {
-        m->pool_failed = true;
-        return false;
-    }
+    m->world = tt_phys_init(blocks, sizes, nblocks, body_cap, mf_cap);
+    /* Report the failure, do NOT latch it. One rung failing is the ladder working as designed —
+     * the caller frees these blocks and tries a smaller cap. Setting m->pool_failed here made that
+     * recovery invisible: tt_render() tests `pool_failed || !world` and nothing ever cleared the
+     * flag, so a run that failed at rung 0 and then succeeded at rung 1 built a perfectly good
+     * world and still drew "out of memory - cannot start" over it. Only tt_arena_claim() running
+     * out of rungs is a real failure, and app_init() already sets the flag there. */
+    if(!m->world) return false;
+    /* Only now do we own them — a failed init leaves the caller free to try a smaller rung
+     * with the blocks it still holds. */
+    for(uint8_t i = 0; i < nblocks; i++) m->pool[i] = blocks[i];
+    m->nblocks = nblocks;
     return true;
+}
+
+void tt_game_free(tt_model_t* m) {
+    for(uint8_t i = 0; i < m->nblocks; i++) {
+        if(m->pool[i]) os_free(m->pool[i]);
+        m->pool[i] = NULL;
+    }
+    m->nblocks = 0;
+    m->world = NULL;
 }
 
 void tt_game_reset(tt_model_t* m) {

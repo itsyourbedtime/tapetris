@@ -95,11 +95,11 @@ static void tt_fill_convex(gfx_t* g, const vec2* v, int n, const tt_style_t* st)
         if(ix1 > TT_WELL_X1 - 1) ix1 = TT_WELL_X1 - 1;
         if(ix0 > ix1) continue;
 
-        const gfx_uint_t w = (gfx_uint_t)(ix1 - ix0 + 1);
+        const gfx_coord_t w = (gfx_coord_t)(ix1 - ix0 + 1);
         if(shade == TT_SOLID)
-            gfx_draw_hline(g, (gfx_uint_t)ix0, (gfx_uint_t)y, w);
+            gfx_draw_hline(g, (gfx_coord_t)ix0, (gfx_coord_t)y, w);
         else
-            gfx_draw_hline_dithered(g, (gfx_uint_t)ix0, (gfx_uint_t)y, w, shade);
+            gfx_draw_hline_dithered(g, (gfx_coord_t)ix0, (gfx_coord_t)y, w, shade);
     }
 }
 
@@ -116,8 +116,8 @@ static void tt_outline(gfx_t* g, const vec2* v, int n, uint8_t th) {
                (float)(TT_WELL_X1 - 1),
                (float)(TT_CLIP_Y1 - 1)))
             continue;
-        const gfx_uint_t x0 = (gfx_uint_t)(ax + 0.5f), y0 = (gfx_uint_t)(ay + 0.5f);
-        const gfx_uint_t x1 = (gfx_uint_t)(bx + 0.5f), y1 = (gfx_uint_t)(by + 0.5f);
+        const gfx_coord_t x0 = (gfx_coord_t)(ax + 0.5f), y0 = (gfx_coord_t)(ay + 0.5f);
+        const gfx_coord_t x1 = (gfx_coord_t)(bx + 0.5f), y1 = (gfx_coord_t)(by + 0.5f);
         if(th > 1)
             gfx_draw_line_thick(g, x0, y0, x1, y1, th);
         else
@@ -134,14 +134,14 @@ static void tt_draw_poly(gfx_t* g, const vec2* v, int n, uint8_t style) {
 /* ================================================================================== text ==== */
 
 static void tt_str_right(gfx_t* g, int right, int y, const char* s) {
-    const gfx_uint_t w = gfx_get_str_width(g, s);
-    gfx_draw_str(g, (gfx_uint_t)tt_clampi(right - (int)w, 0, SCREEN_WIDTH - 1), (gfx_uint_t)y, s);
+    const gfx_coord_t w = gfx_get_str_width(g, s);
+    gfx_draw_str(g, (gfx_coord_t)tt_clampi(right - (int)w, 0, SCREEN_WIDTH - 1), (gfx_coord_t)y, s);
 }
 
 static void tt_label_value(gfx_t* g, int y, const char* label, uint32_t value) {
     char buf[16];
     gfx_set_font(g, DepartureMono_Regular_10);
-    gfx_draw_str(g, 4, (gfx_uint_t)y, label);
+    gfx_draw_str(g, 4, (gfx_coord_t)y, label);
     snprintf(buf, sizeof(buf), "%u", (unsigned)value);
     gfx_set_font(g, gfx_nunito_semibold_14);
     tt_str_right(g, 126, y + 20, buf);
@@ -165,8 +165,8 @@ static void tt_draw_meter(gfx_t* g, const tt_model_t* m) {
         const int y = TT_WELL_Y1 - TT_CELL * r - TT_CELL / 2;
         const int pct = m->slice.row_pct[r];
         const int w = 1 + (pct * 7) / 100;
-        gfx_draw_hline(g, (gfx_uint_t)(136 - w), (gfx_uint_t)(y - 1), (gfx_uint_t)w);
-        if(pct >= (int)TT_FILL_PCT) gfx_draw_rect_fill(g, 128, (gfx_uint_t)(y - 3), 9, 6);
+        gfx_draw_hline(g, (gfx_coord_t)(136 - w), (gfx_coord_t)(y - 1), (gfx_coord_t)w);
+        if(pct >= (int)TT_FILL_PCT) gfx_draw_rect_fill(g, 128, (gfx_coord_t)(y - 3), 9, 6);
     }
 }
 
@@ -192,36 +192,36 @@ static void tt_draw_piece_preview(gfx_t* g, uint8_t type, int cx, int cy) {
             const int x0 = (int)(bx - hw + 0.5f), x1 = (int)(bx + hw + 0.5f) - 1;
             if(x1 < x0) continue;
             if(st->shade == TT_SOLID)
-                gfx_draw_hline(g, (gfx_uint_t)x0, (gfx_uint_t)y, (gfx_uint_t)(x1 - x0 + 1));
+                gfx_draw_hline(g, (gfx_coord_t)x0, (gfx_coord_t)y, (gfx_coord_t)(x1 - x0 + 1));
             else
                 gfx_draw_hline_dithered(
-                    g, (gfx_uint_t)x0, (gfx_uint_t)y, (gfx_uint_t)(x1 - x0 + 1), st->shade);
+                    g, (gfx_coord_t)x0, (gfx_coord_t)y, (gfx_coord_t)(x1 - x0 + 1), st->shade);
         }
         for(int k = 0, j = 3; k < 4; j = k++) {
             if(st->outline > 1)
                 gfx_draw_line_thick(
                     g,
-                    (gfx_uint_t)(v[j].x + 0.5f),
-                    (gfx_uint_t)(v[j].y + 0.5f),
-                    (gfx_uint_t)(v[k].x + 0.5f),
-                    (gfx_uint_t)(v[k].y + 0.5f),
+                    (gfx_coord_t)(v[j].x + 0.5f),
+                    (gfx_coord_t)(v[j].y + 0.5f),
+                    (gfx_coord_t)(v[k].x + 0.5f),
+                    (gfx_coord_t)(v[k].y + 0.5f),
                     st->outline);
             else
                 gfx_draw_line(
                     g,
-                    (gfx_uint_t)(v[j].x + 0.5f),
-                    (gfx_uint_t)(v[j].y + 0.5f),
-                    (gfx_uint_t)(v[k].x + 0.5f),
-                    (gfx_uint_t)(v[k].y + 0.5f));
+                    (gfx_coord_t)(v[j].x + 0.5f),
+                    (gfx_coord_t)(v[j].y + 0.5f),
+                    (gfx_coord_t)(v[k].x + 0.5f),
+                    (gfx_coord_t)(v[k].y + 0.5f));
         }
     }
 }
 
 static void tt_draw_hint(gfx_t* g, int y, const char* key, const char* txt) {
-    gfx_draw_rect_r(g, 268, (gfx_uint_t)(y - 14), 18, 18, 3);
+    gfx_draw_rect_r(g, 268, (gfx_coord_t)(y - 14), 18, 18, 3);
     gfx_set_font(g, DepartureMono_Regular_10);
-    gfx_draw_str(g, 273, (gfx_uint_t)y, key);
-    gfx_draw_str(g, 290, (gfx_uint_t)y, txt);
+    gfx_draw_str(g, 273, (gfx_coord_t)y, key);
+    gfx_draw_str(g, 290, (gfx_coord_t)y, txt);
 }
 
 static void tt_draw_panels(gfx_t* g, const tt_model_t* m) {
@@ -253,12 +253,12 @@ static void tt_draw_centre_box(gfx_t* g, const char* line1, const char* line2) {
     gfx_set_color(g, 1);
     gfx_draw_rect_r(g, 100, 92, 200, 56, 4);
     gfx_set_font(g, gfx_nunito_bold_18);
-    gfx_uint_t w = gfx_get_str_width(g, line1);
-    gfx_draw_str(g, (gfx_uint_t)(200 - (int)w / 2), 120, line1);
+    gfx_coord_t w = gfx_get_str_width(g, line1);
+    gfx_draw_str(g, (gfx_coord_t)(200 - (int)w / 2), 120, line1);
     if(line2) {
         gfx_set_font(g, DepartureMono_Regular_10);
         w = gfx_get_str_width(g, line2);
-        gfx_draw_str(g, (gfx_uint_t)(200 - (int)w / 2), 138, line2);
+        gfx_draw_str(g, (gfx_coord_t)(200 - (int)w / 2), 138, line2);
     }
 }
 
@@ -301,7 +301,7 @@ void tt_render(gfx_t* gfx, const tt_model_t* m) {
             gfx_draw_rect_fill(
                 gfx,
                 TT_WELL_X0,
-                (gfx_uint_t)(int)m->band[k].y_top,
+                (gfx_coord_t)(int)m->band[k].y_top,
                 TT_WELL_X1 - TT_WELL_X0,
                 TT_CELL);
         gfx_set_color(gfx, 1);

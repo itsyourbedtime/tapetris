@@ -2,6 +2,7 @@
 #define TT_GAME_H
 
 #include "tt_types.h"
+#include "tt_phys.h" /* TT_MAX_BLOCKS — the arena is cut into blocks, and we hold them */
 #include "tt_slice.h"
 
 enum {
@@ -20,7 +21,11 @@ enum {
 
 typedef struct {
     tt_world_t* world;
-    void* pool; /* the single os_malloc'd block backing `world` */
+    /* The os_malloc'd blocks backing `world`. Several small ones rather than one big
+     * one: the tapp heap fragments, and the largest single block it can serve is well
+     * under the arena total — tt_phys_block_plan() says how to cut it. */
+    void* pool[TT_MAX_BLOCKS];
+    uint8_t nblocks;
     uint16_t body_cap, mf_cap;
     bool pool_failed;
 
@@ -56,7 +61,16 @@ typedef struct {
     uint8_t topped_body_hint;
 } tt_model_t;
 
-bool tt_game_init(tt_model_t* m, void* pool, uint32_t bytes, uint16_t body_cap, uint16_t mf_cap);
+/* Takes OWNERSHIP of `blocks` on success: they are recorded in m->pool for tt_game_free().
+ * On failure it frees nothing — the caller still owns what it allocated. */
+bool tt_game_init(tt_model_t* m,
+                  void* const* blocks,
+                  const uint32_t* sizes,
+                  uint8_t nblocks,
+                  uint16_t body_cap,
+                  uint16_t mf_cap);
+/* Release the arena. Safe to call twice, and on a model that never came up. */
+void tt_game_free(tt_model_t* m);
 void tt_game_reset(tt_model_t* m);
 void tt_game_tick(tt_model_t* m, uint32_t now);
 void tt_game_input(tt_model_t* m, uint8_t btn, KeyStateEnum st);

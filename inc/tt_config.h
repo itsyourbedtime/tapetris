@@ -35,14 +35,24 @@
 #define TT_BODY_MAXPOLY 4
 #define TT_POLY_MAXV 6 /* proven bound: rect + horizontal cuts only ever has <= 6 edge dirs */
 #define TT_CLIP_SCRATCH 8 /* transient, pre-dedup */
-#define TT_MAX_CONTACTS 192
+/* Steady state runs ~25 constraints; the pool only fills during the transient after a clear, and
+ * an overflow already degrades gracefully - the manifolds that did not fit are simply picked up on
+ * the next step. 128 is far above the working set and 9.7 KB cheaper than 192. */
+#define TT_MAX_CONTACTS 128
 #define TT_MAX_PAIRS 512
 #define TT_HASH_BUCKETS 256 /* power of two */
 #define TT_SPLIT_MAXPOLY 16
 
-/* Halved caps, retried when the full pool cannot be served from cached RAM. */
-#define TT_MIN_BODIES 32
-#define TT_MIN_CONTACTS 96
+/*
+ * Fallback ladder, tried top to bottom when the full pool cannot be served from cached RAM. Every
+ * rung is playable; the lower ones just cap how much debris can coexist, so a big clear retires
+ * old fragments sooner. TT_MAX_BODIES/TT_MAX_CONTACTS above are rung 0.
+ */
+#define TT_RUNGS 4
+#define TT_RUNG_BODIES \
+    { TT_MAX_BODIES, 48, 32, 24 }
+#define TT_RUNG_CONTACTS \
+    { TT_MAX_CONTACTS, 96, 64, 48 }
 
 /* ---- integration -------------------------------------------------------------------------- */
 

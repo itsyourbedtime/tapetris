@@ -130,9 +130,14 @@ typedef struct {
     uint8_t style;
 } tt_snap_poly_t;
 
+/*
+ * The polygon array is allocated, not inline: sized at the compile-time maximum it stayed 6.7 KB
+ * per buffer however small the runtime caps were, so the low-memory fallback barely fell back.
+ */
 typedef struct {
     uint16_t count;
-    tt_snap_poly_t p[TT_MAX_BODIES * TT_BODY_MAXPOLY];
+    uint16_t cap;
+    tt_snap_poly_t* p;
 } tt_snap_t;
 
 /* ---- world -------------------------------------------------------------------------------- */
@@ -157,7 +162,7 @@ typedef struct {
     uint16_t* uf; /* union-find parent, body_cap entries */
     float* island_t; /* min sleep_t per island root */
 
-    tt_snap_t* snap[2];
+    tt_snap_t snap[2];
     volatile uint32_t published;
 
     /* soft-constraint coefficients, recomputed per step */
